@@ -1,13 +1,11 @@
-# Célula de Código no Colab
-%%writefile app.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# --- FUNÇÃO DE CARREGAMENTO E LIMPEZA DE DADOS (AGORA CALCULA O PROGRESSO) ---
+# --- FUNÇÃO DE CARREGAMENTO E LIMPEZA DE DADOS ---
 @st.cache_data
 def load_data():
-    # Carrega os DataFrames
+    # ... (O código de carregamento e limpeza de dados permanece o mesmo) ...
     df_ods6 = pd.read_excel('Indicador6.1.1.xlsx')
     df_ods7 = pd.read_excel('Indicador7.1.1.xlsx')
 
@@ -22,39 +20,9 @@ def load_data():
     df_ods6 = clean_and_rename(df_ods6)
     df_ods7 = clean_and_rename(df_ods7)
 
-    # --- CÁLCULO DO PROGRESSO (ANÁLISE ODS 7) ---
-    df_min_max_ano = df_ods7.groupby('Pais')['Ano'].agg(
-        Ano_Min='min', 
-        Ano_Max='max'
-    ).reset_index()
+    return df_ods6, df_ods7
 
-    # Merge para Valor Inicial
-    df_progresso = pd.merge(
-        df_min_max_ano,
-        df_ods7[['Pais', 'Ano', 'Valor']],
-        left_on=['Pais', 'Ano_Min'],
-        right_on=['Pais', 'Ano'],
-        how='left'
-    ).rename(columns={'Valor': 'Valor_Inicial'}).drop(columns=['Ano'])
-
-    # Merge para Valor Final
-    df_progresso = pd.merge(
-        df_progresso,
-        df_ods7[['Pais', 'Ano', 'Valor']],
-        left_on=['Pais', 'Ano_Max'],
-        right_on=['Pais', 'Ano'],
-        how='left'
-    ).rename(columns={'Valor': 'Valor_Final'}).drop(columns=['Ano'])
-
-    # Calcula e ordena o Progresso
-    df_progresso['Progresso'] = (df_progresso['Valor_Final'] - df_progresso['Valor_Inicial']).round(2)
-    df_progresso.dropna(subset=['Progresso'], inplace=True)
-    df_top3_progresso = df_progresso.sort_values(by='Progresso', ascending=False).head(3)
-
-    return df_ods6, df_ods7, df_top3_progresso
-
-# Carrega os dados e o progresso
-df_ods6, df_ods7, df_top3_progresso = load_data()
+df_ods6, df_ods7 = load_data()
 
 
 # --- ESTRUTURA E INTERFACE STREAMLIT ---
@@ -86,69 +54,44 @@ paises_disponiveis = sorted(df_analise['Pais'].unique().tolist())
 paises_selecionados = st.multiselect(
     'Selecione os Países para Comparação (Use o filtro acima):', 
     paises_disponiveis, 
-    default=paises_disponiveis # Usaremos todos por padrão
+    # Para o Histograma, usaremos todos os países por padrão para ver a distribuição geral
+    default=paises_disponiveis 
 )
 
+# Para o Histograma, vamos usar o DataFrame COMPLETO (df_analise) e não apenas o filtrado,
+# a não ser que o usuário queira filtrar a distribuição por país.
+# Vamos usar o df_filtrado para ser consistente com o filtro 'paises_selecionados'
 df_filtrado = df_analise[df_analise['Pais'].isin(paises_selecionados)]
 
 # 3. VISUALIZAÇÃO DE DADOS INTERATIVA
 if not df_filtrado.empty:
     
-    # --- HISTOGRAMA (GRÁFICO PRINCIPAL) ---
+    # --- HISTOGRAMA (NOVO GRÁFICO PRINCIPAL) ---
     st.subheader('🔔 Distribuição da Porcentagem de Acesso (Frequência)')
     
+    # Cria o Histograma
     fig_hist = px.histogram(
         df_filtrado, 
         x='Valor', 
-        nbins=20, 
+        # color='Pais', # Não vamos colorir por país, para evitar muitas cores no Histograma
+        nbins=20, # Define 20 'baldes' ou classes para a distribuição
         title=f'Histograma de Valores de Acesso ({ods_escolhido})',
         labels={'Valor': 'Valor do Indicador (%)', 'count': 'Frequência (Nº de Registros País/Ano)'},
-        histnorm='percent',
+        histnorm='percent', # Mostra a altura das barras como porcentagem do total
         opacity=0.8
     )
+    
+    # Adiciona a linha de média (opcional, mas muito útil)
     media = df_filtrado['Valor'].mean()
     fig_hist.add_vline(x=media, line_width=2, line_dash="dash", line_color="red", 
                        annotation_text=f"Média Geral: {media:.2f}%")
                        
     st.plotly_chart(fig_hist, use_container_width=True)
 
-    # --- TOP 3 PROGRESSO (NOVA SEÇÃO ABAIXO DO GRÁFICO) ---
-    if ods_escolhido == 'ODS 7: Energia Limpa':
-        st.markdown("---")
-        st.subheader('🏅 Análise Aprofundada: TOP 3 Maiores Progressos Históricos (ODS 7)')
-        st.info("Estes países tiveram o maior aumento percentual em Acesso à Eletricidade desde o primeiro registro.")
-        
-        # Cria as colunas para exibir as métricas
-        col1, col2, col3 = st.columns(3)
-
-        # Preenche as métricas
-        with col1:
-            if len(df_top3_progresso) > 0:
-                st.metric(
-                    label=f"🥇 1º Lugar: {df_top3_progresso.iloc[0]['Pais']}",
-                    value=f"+{df_top3_progresso.iloc[0]['Progresso']:.2f}%",
-                    delta=f"De {df_top3_progresso.iloc[0]['Ano_Min']} a {df_top3_progresso.iloc[0]['Ano_Max']}"
-                )
-        with col2:
-            if len(df_top3_progresso) > 1:
-                st.metric(
-                    label=f"🥈 2º Lugar: {df_top3_progresso.iloc[1]['Pais']}",
-                    value=f"+{df_top3_progresso.iloc[1]['Progresso']:.2f}%",
-                    delta=f"De {df_top3_progresso.iloc[1]['Ano_Min']} a {df_top3_progresso.iloc[1]['Ano_Max']}"
-                )
-        with col3:
-            if len(df_top3_progresso) > 2:
-                st.metric(
-                    label=f"🥉 3º Lugar: {df_top3_progresso.iloc[2]['Pais']}",
-                    value=f"+{df_top3_progresso.iloc[2]['Progresso']:.2f}%",
-                    delta=f"De {df_top3_progresso.iloc[2]['Ano_Min']} a {df_top3_progresso.iloc[2]['Ano_Max']}"
-                )
-        st.markdown("---")
-
-
     # --- GRÁFICO DE BARRAS (PARA COMPARAÇÃO NO ÚLTIMO ANO) ---
     st.subheader('📊 Comparação por País no Último Ano Disponível')
 
+    # ... (O código do Gráfico de Barras permanece o mesmo) ...
     ultimo_ano = df_filtrado['Ano'].max()
     df_ultimo_ano = df_filtrado[df_filtrado['Ano'] == ultimo_ano]
     
